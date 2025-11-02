@@ -4,12 +4,13 @@ namespace App\Infrastructure\Delivery\Api\CreateOrder\v1;
 
 use App\Domain\Entity\Client\ClientEntity;
 use App\Domain\Entity\Order\OrderEntity;
+use App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderDto;
 use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
 use App\Infrastructure\Persistence\Doctrine\Order\OrderEntityRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 
@@ -22,25 +23,14 @@ final class CreateOrderApiController extends AbstractController
     }
 
     #[Route('/api/v1/create-order', name: 'api_create_order_v1', methods: ['POST'])]
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(#[MapRequestPayload] CreateOrderDto $createOrderDto): JsonResponse
     {
-        $content = $request->getContent();
-
-        $orderData = json_decode($content, true);
-
-        if (empty($orderData)) {
-            throw new BadRequestHttpException('Order data is empty');
-        }
-
-        $clientId = $orderData['clientId'] ?? null;
-        $orderContent = $orderData['orderContent'] ?? null;
-
-        if (empty($orderContent)) {
+        if (empty($createOrderDto->orderContent)) {
             throw new BadRequestHttpException('Order content is empty');
         }
 
         /** @var ClientEntity $client */
-        $client = $this->clientEntityRepository->findOneBy(['id' => $clientId]);
+        $client = $this->clientEntityRepository->findOneBy(['id' => $createOrderDto->clientId]);
 
         if (empty($client)) {
             throw new BadRequestHttpException('Client not found');
@@ -52,7 +42,7 @@ final class CreateOrderApiController extends AbstractController
             ->setCreatedAt(new \DateTime())
             ->setCreatedBy($client)
             ->setStatus(OrderEntity::ORDER_STATUS_NEW)
-            ->setOrderContent($orderContent);
+            ->setOrderContent($createOrderDto->orderContent);
 
         $this->orderEntityRepository->store($newOrder);
 
