@@ -7,14 +7,14 @@
 
 Дальнейшие команды выполняются в подключённом контейнере
 
-1. Выполняем команду `composer install`
-2. Выполняем команду `php bin/console doctrine:migrations:migrate`, соглашаемся с вопросом о выполнении миграций
+1. Устанавливаем зависимости: выполняем команду `composer install`
+2. Исполняем стартовую миграцию: выполняем команду `php bin/console doctrine:migrations:migrate`, соглашаемся с вопросом о выполнении миграций
 
 Параметры БД можно посмотреть в файле `docker-compose.yaml` для контейнера `pl-postgres`.
 После миграций должны создаться две таблицы в БД: `client` и `order`.
 В таблице `client` должна быть одна запись.
 
-## Ход урока
+## Проверяем работоспособность
 
 ## Успешный запрос. Создание новой записи
 Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `before/OK /api/create-order/v1`.
@@ -24,3 +24,20 @@
 Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `404 /api/not-existing-endpoint`.
 Видим стандартную ошибку Symfony с кодом 404.
 
+## Десериализация входящих данных
+1. Устанавливаем пакет `composer require symfony/serializer-pack`
+2. Создаём DTO `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderDto`
+    ```php
+    <?php
+    
+    namespace App\Infrastructure\Delivery\Api\CreateOrder\v1\Request;
+    
+    final readonly class CreateOrderDto
+    {
+        public function __construct(
+            public int $clientId,
+            public array $orderContent
+        ) {
+        }
+    }   
+   ```
