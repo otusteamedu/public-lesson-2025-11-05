@@ -25,10 +25,6 @@ final class CreateOrderApiController extends AbstractController
     #[Route('/api/v1/create-order', name: 'api_create_order_v1', methods: ['POST'])]
     public function __invoke(#[MapRequestPayload] CreateOrderDto $createOrderDto): JsonResponse
     {
-        if (empty($createOrderDto->orderContent)) {
-            throw new BadRequestHttpException('Order content is empty');
-        }
-
         /** @var ClientEntity $client */
         $client = $this->clientEntityRepository->findOneBy(['id' => $createOrderDto->clientId]);
 
