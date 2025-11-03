@@ -221,17 +221,20 @@
    
    namespace App\Infrastructure\Delivery\Api\CreateOrder\v1\Request;
    
+   use App\Domain\Exception\ApiValidationException;
    use Symfony\Component\HttpFoundation\Request;
    use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
    use Symfony\Component\HttpKernel\ControllerMetadata\ArgumentMetadata;
    use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
    use Symfony\Component\Serializer\Exception\ExceptionInterface;
    use Symfony\Component\Serializer\SerializerInterface;
+   use Symfony\Component\Validator\Validator\ValidatorInterface;
    
    final readonly class CreateOrderValueResolver implements ValueResolverInterface
    {
        public function __construct(
-           private SerializerInterface $serializer
+           private SerializerInterface $serializer,
+           private ValidatorInterface $validator
        ) {
        }
    
@@ -240,6 +243,7 @@
         * @param ArgumentMetadata $argument
         * @return iterable
         *
+        * @throws ApiValidationException
         * @throws ExceptionInterface
         */
        public function resolve(Request $request, ArgumentMetadata $argument): iterable
@@ -249,6 +253,17 @@
            }
    
            $deserializedDto = $this->serializer->deserialize($request->getContent(), CreateOrderDto::class, 'json');
+   
+           $violationsList = $this->validator->validate($deserializedDto);
+   
+           if ($violationsList->count() > 0) {
+               $violations = [];
+               foreach ($violationsList as $violation) {
+                   $violations[$violation->getPropertyPath()] = $violation->getMessage();
+               }
+   
+               throw new ApiValidationException($violations);
+           }
    
            $deserializedDto->_source = $request->getRequestUri();
    
@@ -260,4 +275,79 @@
    ```php
    public function __invoke(#[MapRequestPayload(resolver: CreateOrderValueResolver::class)] CreateOrderDto $createOrderDto): JsonResponse
    ```
-4. Выполняем запрос из Postman-коллекции `OK/OK /api/create-order/v1`. В отладчике видимо, что поле `$_source` заполнено адресом ендпоинта
+4. Выполняем запрос из Postman-коллекции `OK/OK /api/create-order/v1`. В отладчике видим, что поле `$_source` заполнено адресом ендпоинта
+
+## Добавляем централизованную обработку исключений
+1. Создаём класс `App\Domain\Response\AbstractResponse`
+   ```php
+   <?php
+   
+   namespace App\Domain\Response;
+   
+   class AbstractResponse
+   {
+       public function __construct(
+           public readonly bool $success,
+           public readonly int $resultCode,
+           public readonly ?string $message,
+           public readonly mixed $data,
+       ) {
+       }
+   }
+   ```
+2. Создаём класс `App\Domain\Response\AbstractResponse\ErrorResponse`
+   ```php
+   <?php
+   
+   namespace App\Domain\Response;
+   
+   class ErrorResponse extends AbstractResponse implements ApiResponseInterface
+   {
+       public function __construct(?string $message, int $resultCode)
+       {
+           parent::__construct(false, $resultCode, $message, null);
+       }
+   }
+   ```
+3. Создаём интерфейс `App\Domain\Exception\ApiExceptionInterface`
+   ```php
+   <?php
+   
+   namespace App\Domain\Exception;
+   
+   interface ApiExceptionInterface
+   {
+       public function getStatusCode(): int;
+   
+       public function getMessage(): string;
+   }
+   ```
+4. Создаём класс `App\Domain\Exception\ApiValidationException`
+   ```php
+   <?php
+   
+   namespace App\Domain\Exception;
+   
+   use Symfony\Component\HttpFoundation\Response;
+   
+   class ApiValidationException extends \Exception implements ApiExceptionInterface
+   {
+       public function __construct(array $violations)
+       {
+           $message = implode('. ', $violations);
+           parent::__construct($message, Response::HTTP_BAD_REQUEST);
+       }
+   
+       public function getStatusCode(): int
+       {
+           return Response::HTTP_BAD_REQUEST;
+       }
+   }
+   ```
+5. В секцию `services` файла `config/services.yaml` добавляем наш listener
+   ```yaml
+   App\Domain\EventListener\KernelExceptionEventListener:
+   tags:
+     - { name: kernel.event_listener, event: kernel.exception }
+   ```   
+6. Выполняем любой запрос с ошибкой из коллекции Postman, видим, что все ответы теперь соответствуют нашему формату
