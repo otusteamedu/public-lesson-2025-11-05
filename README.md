@@ -278,7 +278,18 @@
 4. Выполняем запрос из Postman-коллекции `OK/OK /api/create-order/v1`. В отладчике видим, что поле `$_source` заполнено адресом ендпоинта
 
 ## Добавляем централизованную обработку исключений
-1. Создаём класс `App\Domain\Response\AbstractResponse`
+1. Создаём интерфейс `App\Domain\Response\ApiResponseInterface`
+   ```php
+   <?php
+   
+   namespace App\Domain\Response;
+   
+   interface ApiResponseInterface
+   {
+       public function getResultCode(): int;
+   }
+   ```
+2. Создаём класс `App\Domain\Response\AbstractResponse`
    ```php
    <?php
    
@@ -295,7 +306,7 @@
        }
    }
    ```
-2. Создаём класс `App\Domain\Response\AbstractResponse\ErrorResponse`
+3. Создаём класс `App\Domain\Response\AbstractResponse\ErrorResponse`
    ```php
    <?php
    
@@ -305,11 +316,21 @@
    {
        public function __construct(?string $message, int $resultCode)
        {
-           parent::__construct(false, $resultCode, $message, null);
+           parent::__construct(
+               success: false,
+               resultCode: $resultCode,
+               message: $message,
+               data: null
+           );
+       }
+   
+       public function getResultCode(): int
+       {
+           return $this->resultCode;
        }
    }
    ```
-3. Создаём интерфейс `App\Domain\Exception\ApiExceptionInterface`
+4. Создаём интерфейс `App\Domain\Exception\ApiExceptionInterface`
    ```php
    <?php
    
@@ -322,7 +343,7 @@
        public function getMessage(): string;
    }
    ```
-4. Создаём класс `App\Domain\Exception\ApiValidationException`
+5. Создаём класс `App\Domain\Exception\ApiValidationException`
    ```php
    <?php
    
@@ -344,10 +365,163 @@
        }
    }
    ```
-5. В секцию `services` файла `config/services.yaml` добавляем наш listener
+6. В секцию `services` файла `config/services.yaml` добавляем наш listener
    ```yaml
    App\Domain\EventListener\KernelExceptionEventListener:
    tags:
      - { name: kernel.event_listener, event: kernel.exception }
    ```   
-6. Выполняем любой запрос с ошибкой из коллекции Postman, видим, что все ответы теперь соответствуют нашему формату
+7. Выполняем любой запрос с ошибкой из коллекции Postman, видим, что все ответы теперь соответствуют нашему формату
+
+## Добавляем централизованную обработку ответов
+
+1. Создаём класс `App\Domain\Response\SuccessResponse`
+   ```php
+   <?php
+   
+   namespace App\Domain\Response;
+   
+   class SuccessResponse extends AbstractResponse implements ApiResponseInterface
+   {
+       public function __construct(mixed $data, ?string $message, int $resultCode)
+       {
+           parent::__construct(
+               success: true,
+               resultCode: $resultCode,
+               message: $message,
+               data: $data
+           );
+       }
+   
+       public function getResultCode(): int
+       {
+           return $this->resultCode;
+       }
+   }
+   ```
+2. Создаём класс `App\Domain\EventListener\KernelViewEventListener`
+   ```php
+   <?php
+   
+   namespace App\Domain\EventListener;
+   
+   use App\Domain\Response\ApiResponseInterface;
+   use App\Domain\Response\SuccessResponse;
+   use Symfony\Component\HttpFoundation\JsonResponse;
+   use Symfony\Component\HttpFoundation\Response;
+   use Symfony\Component\HttpKernel\Event\ViewEvent;
+   use Symfony\Component\Serializer\Encoder\JsonEncoder;
+   use Symfony\Component\Serializer\Exception\ExceptionInterface;
+   use Symfony\Component\Serializer\SerializerInterface;
+   
+   final readonly class KernelViewEventListener
+   {
+       public function __construct(private SerializerInterface $serializer)
+       {
+       }
+   
+       /**
+        * @param ViewEvent $event
+        * @return void
+        *
+        * @throws ExceptionInterface
+        */
+       public function onKernelView(ViewEvent $event): void
+       {
+           $controllerResult = $event->getControllerResult();
+   
+           $response = $this->resolveResponse($controllerResult);
+   
+           $jsonResponse = new JsonResponse(
+               data: $this->serializer->serialize($controllerResult, JsonEncoder::FORMAT),
+               status: $response->getResultCode(),
+               json: true
+           );
+   
+           $event->setResponse($jsonResponse);
+       }
+   
+       private function resolveResponse(mixed $controllerResult): ApiResponseInterface
+       {
+           if ($controllerResult instanceof ApiResponseInterface) {
+               return $controllerResult;
+           }
+   
+           return new SuccessResponse(
+               data: $controllerResult,
+               message: null,
+               resultCode: Response::HTTP_OK
+           );
+       }
+   }
+   ```
+3. В секцию `services` файла `config/services.yaml` добавляем наш listener
+   ```yaml
+   App\Domain\EventListener\KernelViewEventListener:
+   tags:
+     - { name: kernel.event_listener, event: kernel.exception }
+   ```
+4. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`:
+   ```php
+   <?php
+   
+   namespace App\Infrastructure\Delivery\Api\CreateOrder\v1;
+   
+   use App\Domain\Entity\Client\ClientEntity;
+   use App\Domain\Entity\Order\OrderEntity;
+   use App\Domain\Response\ApiResponseInterface;
+   use App\Domain\Response\SuccessResponse;
+   use App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderDto;
+   use App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver;
+   use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
+   use App\Infrastructure\Persistence\Doctrine\Order\OrderEntityRepository;
+   use Symfony\Component\HttpFoundation\Response;
+   use Symfony\Component\HttpKernel\Attribute\AsController;
+   use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
+   use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+   use Symfony\Component\Routing\Attribute\Route;
+   
+   #[AsController]
+   final readonly class CreateOrderApiController
+   {
+       public function __construct(
+           private ClientEntityRepository $clientEntityRepository,
+           private OrderEntityRepository $orderEntityRepository,
+       ) {
+       }
+   
+       #[Route('/api/v1/create-order', name: 'api_create_order_v1', methods: ['POST'])]
+       public function __invoke(
+           #[MapRequestPayload(resolver: CreateOrderValueResolver::class)] CreateOrderDto $createOrderDto
+       ): ApiResponseInterface {
+           /** @var ClientEntity $client */
+           $client = $this->clientEntityRepository->findOneBy(['id' => $createOrderDto->clientId]);
+   
+           if (empty($client)) {
+               throw new BadRequestHttpException('Client not found');
+           }
+   
+           $newOrder = new OrderEntity();
+   
+           $newOrder
+               ->setCreatedAt(new \DateTime())
+               ->setCreatedBy($client)
+               ->setStatus(OrderEntity::ORDER_STATUS_NEW)
+               ->setOrderContent($createOrderDto->orderContent);
+   
+           $this->orderEntityRepository->store($newOrder);
+   
+           return new SuccessResponse(
+               data: [
+                   'orderId' => $newOrder->getId(),
+                   'status' => $newOrder->getStatus(),
+               ],
+               message: null,
+               resultCode: Response::HTTP_CREATED
+           );
+       }
+   }
+   ```
+5. Выполняем успешеный запрос из коллекции Postman, видим, что ответ теперь соответствуют нашему формату
+
+## Выносим логику в отдельный сервис и применяем Symfony Message для CQRS

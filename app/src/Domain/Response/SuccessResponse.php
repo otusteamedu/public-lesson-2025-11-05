@@ -2,15 +2,15 @@
 
 namespace App\Domain\Response;
 
-class ErrorResponse extends AbstractResponse implements ApiResponseInterface
+class SuccessResponse extends AbstractResponse implements ApiResponseInterface
 {
-    public function __construct(?string $message, int $resultCode)
+    public function __construct(mixed $data, ?string $message, int $resultCode)
     {
         parent::__construct(
-            success: false,
+            success: true,
             resultCode: $resultCode,
             message: $message,
-            data: null
+            data: $data
         );
     }
 
