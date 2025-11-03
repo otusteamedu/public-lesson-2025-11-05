@@ -5,6 +5,7 @@ namespace App\Infrastructure\Delivery\Api\CreateOrder\v1;
 use App\Domain\Entity\Client\ClientEntity;
 use App\Domain\Entity\Order\OrderEntity;
 use App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderDto;
+use App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver;
 use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
 use App\Infrastructure\Persistence\Doctrine\Order\OrderEntityRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -23,7 +24,7 @@ final class CreateOrderApiController extends AbstractController
     }
 
     #[Route('/api/v1/create-order', name: 'api_create_order_v1', methods: ['POST'])]
-    public function __invoke(#[MapRequestPayload] CreateOrderDto $createOrderDto): JsonResponse
+    public function __invoke(#[MapRequestPayload(resolver: CreateOrderValueResolver::class)] CreateOrderDto $createOrderDto): JsonResponse
     {
         /** @var ClientEntity $client */
         $client = $this->clientEntityRepository->findOneBy(['id' => $createOrderDto->clientId]);

@@ -17,11 +17,11 @@
 ## Проверяем работоспособность
 
 ## Успешный запрос. Создание новой записи
-Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `before/OK /api/create-order/v1`.
+Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `OK/OK /api/create-order/v1`.
 Убеждаемся, что в БД, в таблице `order` добавилась новая запись.
 
 ## Неуспешный запрос. Ошибка 404
-Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `404 /api/not-existing-endpoint`.
+Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `Errors/404 /api/not-existing-endpoint`.
 Видим стандартную ошибку Symfony с кодом 404.
 
 ## Десериализация входящих данных
@@ -188,6 +188,76 @@
        }
    }
    ```
-3. Выполняем запрос из Postman-коллекции `before/OK /api/create-order/v1`. Видим, что ещё один заказ успешно создан
-4. Выполняем запрос из Postman-коллекции `common/422 Empty orderContent /api/create-order/v1` с пустым содержимым заказа. Видим ошибку 422
-4. Выполняем запрос из Postman-коллекции `common/422 zeroed client id /api/create-order/v1` с нулевым значением `clientId`. Видим ошибку 422
+4. Выполняем запрос из Postman-коллекции `OK/OK /api/create-order/v1`. Видим, что ещё один заказ успешно создан
+5. Выполняем запрос из Postman-коллекции `Errors/422 Empty orderContent /api/create-order/v1` с пустым содержимым заказа. Видим ошибку 422 от валидатора
+6. Выполняем запрос из Postman-коллекции `Errors/422 zeroed client id /api/create-order/v1` с нулевым значением `clientId`. Видим ошибку 422 от валидатора
+
+## Добавляем кастомный разбор входящего запроса
+1. Исправляем DTO `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderDto`
+   ```php
+   <?php
+   
+   namespace App\Infrastructure\Delivery\Api\CreateOrder\v1\Request;
+   
+   use Symfony\Component\Validator\Constraints as Assert;
+   
+   final class CreateOrderDto
+   {
+       public function __construct(
+           public ?string $_source,
+   
+           #[Assert\Positive(message: 'Client Id must be greater than 0')]
+           public int $clientId,
+   
+           #[Assert\NotBlank(message: 'Order content must containt at least one order item')]
+           public array $orderContent
+       ) {
+       }
+   }
+   ```
+2. Добавляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
+   ```php
+   <?php
+   
+   namespace App\Infrastructure\Delivery\Api\CreateOrder\v1\Request;
+   
+   use Symfony\Component\HttpFoundation\Request;
+   use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
+   use Symfony\Component\HttpKernel\ControllerMetadata\ArgumentMetadata;
+   use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+   use Symfony\Component\Serializer\Exception\ExceptionInterface;
+   use Symfony\Component\Serializer\SerializerInterface;
+   
+   final readonly class CreateOrderValueResolver implements ValueResolverInterface
+   {
+       public function __construct(
+           private SerializerInterface $serializer
+       ) {
+       }
+   
+       /**
+        * @param Request $request
+        * @param ArgumentMetadata $argument
+        * @return iterable
+        *
+        * @throws ExceptionInterface
+        */
+       public function resolve(Request $request, ArgumentMetadata $argument): iterable
+       {
+           if ($argument->getType() != CreateOrderDto::class) {
+               throw new BadRequestHttpException('Wrong request type');
+           }
+   
+           $deserializedDto = $this->serializer->deserialize($request->getContent(), CreateOrderDto::class, 'json');
+   
+           $deserializedDto->_source = $request->getRequestUri();
+   
+           return [$deserializedDto];
+       }
+   }
+   ```
+3. Исправляем сигнатуру метода `__invoke` контроллера `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
+   ```php
+   public function __invoke(#[MapRequestPayload(resolver: CreateOrderValueResolver::class)] CreateOrderDto $createOrderDto): JsonResponse
+   ```
+4. Выполняем запрос из Postman-коллекции `OK/OK /api/create-order/v1`. В отладчике видимо, что поле `$_source` заполнено адресом ендпоинта
