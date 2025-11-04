@@ -1,4 +1,13 @@
 # Делаем тонкие контроллеры на Symfony
+## Показаны 
+* Сериализация/десериализация
+* CustomConstraints
+* ObjectMapper
+* SymfonyMessenger
+* CQRS
+
+## Репозиторий к [открытому уроку](https://otus.ru/lessons/symfony/#event-6486) курса [Symfony Framework](https://otus.ru/lessons/symfony/)
+Автор: [Сергей Петров](mailto:cl@coders-lair.com)
 
 ## Сборка проекта и зависимостей
 
@@ -16,11 +25,11 @@
 
 ## Проверяем работоспособность
 
-## Успешный запрос. Создание новой записи
+### Успешный запрос. Создание новой записи
 Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `OK/OK /api/create-order/v1`.
 Убеждаемся, что в БД, в таблице `order` добавилась новая запись.
 
-## Неуспешный запрос. Ошибка 404
+### Неуспешный запрос. Ошибка 404
 Выполняем из Postman-коллекции `Otus-public-lesson-2025-11-05` запрос `Errors/404 /api/not-existing-endpoint`.
 Видим стандартную ошибку Symfony с кодом 404.
 
@@ -524,9 +533,9 @@
    ```
 3. В секцию `services` файла `config/services.yaml` добавляем наш listener
    ```yaml
-   App\Domain\EventListener\KernelViewEventListener:
-   tags:
-     - { name: kernel.event_listener, event: kernel.exception }
+    App\Domain\EventListener\KernelViewEventListener:
+        tags:
+            - { name: kernel.event_listener, event: kernel.view }
    ```
 4. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`:
    ```php
@@ -740,41 +749,78 @@
        }
    }
    ```
-9. Создаём класс `App\Application\UseCase\GetOrderInfo\GetOrderInfoQueryHandler`:
+9. Создаём класс `App\Application\UseCase\GetOrderInfo\OrderInfoModel`
    ```php
    <?php
    
    namespace App\Application\UseCase\GetOrderInfo;
    
-   use App\Domain\Entity\Order\OrderEntity;
-   use App\Infrastructure\Persistence\Doctrine\Order\OrderEntityRepository;
-   use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
-   use Symfony\Component\Messenger\Attribute\AsMessageHandler;
-   use Symfony\Component\ObjectMapper\ObjectMapperInterface;
-   
-   #[AsMessageHandler(bus: 'query.bus')]
-   final readonly class GetOrderInfoQueryHandler
+   final readonly class OrderInfoModel
    {
        public function __construct(
-           private OrderEntityRepository $orderEntityRepository,
-           private ObjectMapperInterface $objectMapper,
+           private readonly int $id,
+           private readonly \DateTime $createdAt,
+           private readonly string $status,
+           private readonly array $orderContent
        ) {
        }
    
-       public function __invoke(GetOrderInfoQuery $query): OrderInfoModel
+       public function getId(): int
        {
-           /** @var OrderEntity $order */
-           $order = $this->orderEntityRepository->find($query->getOrderId());
+           return $this->id;
+       }
    
-           if (empty($order)) {
-               throw new BadRequestHttpException('Order not found');
-           }
+       public function getCreatedAt(): \DateTime
+       {
+           return $this->createdAt;
+       }
    
-           return $this->objectMapper->map($order, OrderInfoModel::class);
+       public function getStatus(): string
+       {
+           return $this->status;
+       }
+   
+       public function getOrderContent(): array
+       {
+           return $this->orderContent;
        }
    }
    ```
-10. Создаём класс `App\Application\CQRS\CQRSTrait`
+10. Создаём класс `App\Application\UseCase\GetOrderInfo\GetOrderInfoQueryHandler`:
+    ```php
+    <?php
+   
+    namespace App\Application\UseCase\GetOrderInfo;
+   
+    use App\Domain\Entity\Order\OrderEntity;
+    use App\Infrastructure\Persistence\Doctrine\Order\OrderEntityRepository;
+    use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+    use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+    use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+   
+    #[AsMessageHandler(bus: 'query.bus')]
+    final readonly class GetOrderInfoQueryHandler
+    {
+        public function __construct(
+            private OrderEntityRepository $orderEntityRepository,
+            private ObjectMapperInterface $objectMapper,
+        ) {
+        }
+   
+        public function __invoke(GetOrderInfoQuery $query): OrderInfoModel
+        {
+            /** @var OrderEntity $order */
+            $order = $this->orderEntityRepository->find($query->getOrderId());
+   
+            if (empty($order)) {
+                throw new BadRequestHttpException('Order not found');
+            }
+   
+            return $this->objectMapper->map($order, OrderInfoModel::class);
+        }
+    }
+    ```
+11. Создаём класс `App\Application\CQRS\CQRSTrait`
    ```php
    <?php
    
@@ -816,7 +862,7 @@
        }
    }
    ```
-11. Создаём класс `App\Domain\Validation\IsClientExistsConstraint`
+12. Создаём класс `App\Domain\Validation\IsClientExistsConstraint`
    ```php
    <?php
    
@@ -840,7 +886,7 @@
        }
    }
    ```
-12. Создаём класс `App\Domain\Validation\IsClientExistsConstraintValidator`
+13. Создаём класс `App\Domain\Validation\IsClientExistsConstraintValidator`
    ```php
    <?php
    
@@ -875,7 +921,8 @@
        }
    }
    ```
-13. Исправляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
+14. Добавляем атрибут `#[IsClientExistsConstraint]` классу `App\Application\UseCase\CreateOrder\CreateOrderCommand`
+15. Исправляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
    ```php
    <?php
    
@@ -932,7 +979,7 @@
        }
    }
    ```
-14. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
+16. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
    ```php
    <?php
    
@@ -979,4 +1026,4 @@
        }
    }
    ```
-15. Пробуем отправить любые из имеющихся запросов, видим, что всё работает так, как ожидалось, с соответствующими ответами
+17. Пробуем отправить любые из имеющихся запросов, видим, что всё работает так, как ожидалось, с соответствующими ответами
