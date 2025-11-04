@@ -215,7 +215,42 @@
        }
    }
    ```
-2. Добавляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
+2. Создаём интерфейс `App\Domain\Exception\ApiExceptionInterface`
+   ```php
+   <?php
+   
+   namespace App\Domain\Exception;
+   
+   interface ApiExceptionInterface
+   {
+       public function getStatusCode(): int;
+   
+       public function getMessage(): string;
+   }
+   ```
+3. Создаём класс `App\Domain\Exception\ApiValidationException`
+   ```php
+   <?php
+   
+   namespace App\Domain\Exception;
+   
+   use Symfony\Component\HttpFoundation\Response;
+   
+   class ApiValidationException extends \Exception implements ApiExceptionInterface
+   {
+       public function __construct(array $violations)
+       {
+           $message = implode('. ', $violations);
+           parent::__construct($message, Response::HTTP_BAD_REQUEST);
+       }
+   
+       public function getStatusCode(): int
+       {
+           return Response::HTTP_BAD_REQUEST;
+       }
+   }
+   ```
+4. Добавляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
    ```php
    <?php
    
@@ -271,11 +306,11 @@
        }
    }
    ```
-3. Исправляем сигнатуру метода `__invoke` контроллера `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
+5. Исправляем сигнатуру метода `__invoke` контроллера `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
    ```php
    public function __invoke(#[MapRequestPayload(resolver: CreateOrderValueResolver::class)] CreateOrderDto $createOrderDto): JsonResponse
    ```
-4. Выполняем запрос из Postman-коллекции `OK/OK /api/create-order/v1`. В отладчике видим, что поле `$_source` заполнено адресом ендпоинта
+6. Выполняем запрос из Postman-коллекции `OK/OK /api/create-order/v1`. В отладчике видим, что поле `$_source` заполнено адресом ендпоинта
 
 ## Добавляем централизованную обработку исключений
 1. Создаём интерфейс `App\Domain\Response\ApiResponseInterface`
@@ -306,7 +341,7 @@
        }
    }
    ```
-3. Создаём класс `App\Domain\Response\AbstractResponse\ErrorResponse`
+3. Создаём класс `App\Domain\Response\ErrorResponse`
    ```php
    <?php
    
@@ -330,48 +365,80 @@
        }
    }
    ```
-4. Создаём интерфейс `App\Domain\Exception\ApiExceptionInterface`
+4. Создаём класс `App\Domain\EventListener\KernelExceptionEventListener`
    ```php
    <?php
    
-   namespace App\Domain\Exception;
+   namespace App\Domain\EventListener;
    
-   interface ApiExceptionInterface
-   {
-       public function getStatusCode(): int;
-   
-       public function getMessage(): string;
-   }
-   ```
-5. Создаём класс `App\Domain\Exception\ApiValidationException`
-   ```php
-   <?php
-   
-   namespace App\Domain\Exception;
-   
+   use App\Domain\Exception\ApiExceptionInterface;
+   use App\Domain\Response\ErrorResponse;
+   use Symfony\Component\HttpFoundation\JsonResponse;
    use Symfony\Component\HttpFoundation\Response;
+   use Symfony\Component\HttpKernel\Event\ExceptionEvent;
+   use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+   use Symfony\Component\Serializer\Encoder\JsonEncoder;
+   use Symfony\Component\Serializer\Exception\ExceptionInterface;
+   use Symfony\Component\Serializer\SerializerInterface;
    
-   class ApiValidationException extends \Exception implements ApiExceptionInterface
+   final readonly class KernelExceptionEventListener
    {
-       public function __construct(array $violations)
+       public function __construct(private SerializerInterface $serializer)
        {
-           $message = implode('. ', $violations);
-           parent::__construct($message, Response::HTTP_BAD_REQUEST);
        }
    
-       public function getStatusCode(): int
+       /**
+        * @param ExceptionEvent $event
+        * @return void
+        *
+        * @throws ExceptionInterface
+        */
+       public function onKernelException(ExceptionEvent $event): void
        {
-           return Response::HTTP_BAD_REQUEST;
+           $exception = $event->getThrowable();
+   
+           $errorResponse = $this->resolveResponse($exception);
+   
+           $jsonResponse = new JsonResponse(
+               data: $this->serializer->serialize($errorResponse, JsonEncoder::FORMAT),
+               status: $errorResponse->resultCode,
+               json: true
+           );
+   
+           $event->setResponse($jsonResponse);
+       }
+   
+       private function resolveResponse(\Throwable $exception): ErrorResponse
+       {
+           return new ErrorResponse(
+               message: $exception->getMessage(),
+               resultCode: $this->resolveExceptionCode($exception)
+           );
+       }
+   
+       private function resolveExceptionCode(\Throwable $exception): int
+       {
+           if ($exception instanceof ApiExceptionInterface || $exception instanceof HttpExceptionInterface) {
+               return $exception->getStatusCode();
+           }
+   
+           $statusCode = $exception->getCode();
+   
+           if ($statusCode < Response::HTTP_CONTINUE || $statusCode > Response::HTTP_NETWORK_AUTHENTICATION_REQUIRED) {
+               return Response::HTTP_INTERNAL_SERVER_ERROR;
+           }
+   
+           return $statusCode;
        }
    }
    ```
-6. В секцию `services` файла `config/services.yaml` добавляем наш listener
+4. В секцию `services` файла `config/services.yaml` добавляем наш listener
    ```yaml
-   App\Domain\EventListener\KernelExceptionEventListener:
-   tags:
-     - { name: kernel.event_listener, event: kernel.exception }
+    App\Domain\EventListener\KernelExceptionEventListener:
+        tags:
+            - { name: kernel.event_listener, event: kernel.exception }
    ```   
-7. Выполняем любой запрос с ошибкой из коллекции Postman, видим, что все ответы теперь соответствуют нашему формату
+5. Выполняем любой запрос с ошибкой из коллекции Postman, видим, что все ответы теперь соответствуют нашему формату
 
 ## Добавляем централизованную обработку ответов
 
