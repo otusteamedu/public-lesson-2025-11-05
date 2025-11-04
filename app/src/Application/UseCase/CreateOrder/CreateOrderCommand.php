@@ -2,8 +2,10 @@
 
 namespace App\Application\UseCase\CreateOrder;
 
+use App\Domain\Validation\IsClientExistsConstraint;
 use Symfony\Component\Validator\Constraints as Assert;
 
+#[IsClientExistsConstraint]
 class CreateOrderCommand
 {
     public function __construct(
