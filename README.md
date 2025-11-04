@@ -749,7 +749,66 @@
        }
    }
    ```
-11. Исправляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
+11. Создаём класс `App\Domain\Validation\IsClientExistsConstraint`
+   ```php
+   <?php
+   
+   namespace App\Domain\Validation;
+   
+   use Symfony\Component\Validator\Constraint;
+   
+   #[\Attribute]
+   class IsClientExistsConstraint extends Constraint
+   {
+       public function __construct(
+           array $groups = null,
+           $payload = null
+       ) {
+           parent::__construct([], $groups, $payload);
+       }
+   
+       public function getTargets(): string|array
+       {
+           return self::CLASS_CONSTRAINT;
+       }
+   }
+   ```
+12. Создаём класс `App\Domain\Validation\IsClientExistsConstraintValidator`
+   ```php
+   <?php
+   
+   namespace App\Domain\Validation;
+   
+   use App\Application\UseCase\CreateOrder\CreateOrderCommand;
+   use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
+   use Symfony\Component\Validator\Constraint;
+   use Symfony\Component\Validator\ConstraintValidator;
+   use Symfony\Component\Validator\Exception\UnexpectedTypeException;
+   
+   class IsClientExistsConstraintValidator extends ConstraintValidator
+   {
+       public function __construct(private readonly ClientEntityRepository $clientEntityRepository)
+       {
+       }
+   
+       public function validate(mixed $value, Constraint $constraint): void
+       {
+           if (!$constraint instanceof IsClientExistsConstraint) {
+               throw new UnexpectedTypeException($constraint, IsClientExistsConstraint::class);
+           }
+   
+           if (!$value instanceof CreateOrderCommand) {
+               throw new UnexpectedTypeException($constraint, CreateOrderCommand::class);
+           }
+   
+           $client = $this->clientEntityRepository->find($value->clientId);
+           if (empty($client)) {
+               $this->context->buildViolation('Client not found')->addViolation();
+           }
+       }
+   }
+   ```
+13. Исправляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
    ```php
    <?php
    
@@ -757,7 +816,6 @@
    
    use App\Application\UseCase\CreateOrder\CreateOrderCommand;
    use App\Domain\Exception\ApiValidationException;
-   use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
    use Symfony\Component\HttpFoundation\Request;
    use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
    use Symfony\Component\HttpKernel\ControllerMetadata\ArgumentMetadata;
@@ -769,7 +827,6 @@
    final readonly class CreateOrderValueResolver implements ValueResolverInterface
    {
        public function __construct(
-           private ClientEntityRepository $clientEntityRepository,
            private SerializerInterface $serializer,
            private ValidatorInterface $validator
        ) {
@@ -802,19 +859,13 @@
                throw new ApiValidationException($violations);
            }
    
-           $client = $this->clientEntityRepository->find($createOrderCommand->clientId);
-   
-           if (empty($client)) {
-               throw new BadRequestHttpException('Client not found');
-           }
-   
            $createOrderCommand->_source = $request->getRequestUri();
    
            return [$createOrderCommand];
        }
    }
    ```
-12. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
+14. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
    ```php
    <?php
    
@@ -861,4 +912,4 @@
        }
    }
    ```
-13. Пробуем отправить любые из имеющихся запросов, видим, что всё работает так, как ожидалось, с соответствующими ответами
+15. Пробуем отправить любые из имеющихся запросов, видим, что всё работает так, как ожидалось, с соответствующими ответами
