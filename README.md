@@ -25,7 +25,7 @@
 Видим стандартную ошибку Symfony с кодом 404.
 
 ## Десериализация входящих данных
-1. Устанавливаем пакет `composer require symfony/serializer-pack`
+1. Устанавливаем пакет `symfony/serializer-pack`
 2. Создаём DTO `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderDto`
     ```php
     <?php
@@ -75,7 +75,7 @@
            }
    
            /** @var ClientEntity $client */
-           $client = $this->clientEntityRepository->find($createOrderCommand->clientId);
+           $client = $this->clientEntityRepository->find($createOrderDto->clientId);
    
            if (empty($client)) {
                throw new BadRequestHttpException('Client not found');
