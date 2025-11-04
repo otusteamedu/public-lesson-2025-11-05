@@ -75,7 +75,7 @@
            }
    
            /** @var ClientEntity $client */
-           $client = $this->clientEntityRepository->findOneBy(['id' => $createOrderDto->clientId]);
+           $client = $this->clientEntityRepository->find($createOrderCommand->clientId);
    
            if (empty($client)) {
                throw new BadRequestHttpException('Client not found');
@@ -158,7 +158,7 @@
        public function __invoke(#[MapRequestPayload] CreateOrderDto $createOrderDto): JsonResponse
        {
            /** @var ClientEntity $client */
-           $client = $this->clientEntityRepository->findOneBy(['id' => $createOrderDto->clientId]);
+           $client = $this->clientEntityRepository->find($createOrderDto->clientId);
    
            if (empty($client)) {
                throw new BadRequestHttpException('Client not found');
@@ -495,7 +495,7 @@
            #[MapRequestPayload(resolver: CreateOrderValueResolver::class)] CreateOrderDto $createOrderDto
        ): ApiResponseInterface {
            /** @var ClientEntity $client */
-           $client = $this->clientEntityRepository->findOneBy(['id' => $createOrderDto->clientId]);
+           $client = $this->clientEntityRepository->find($createOrderDto->clientId);
    
            if (empty($client)) {
                throw new BadRequestHttpException('Client not found');
@@ -629,7 +629,7 @@
    use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
    use Symfony\Component\Messenger\Attribute\AsMessageHandler;
    
-   #[AsMessageHandler]
+   #[AsMessageHandler(bus: 'command.bus')]
    final readonly class CreateOrderCommandHandler
    {
        public function __construct(
@@ -641,7 +641,7 @@
        public function __invoke(CreateOrderCommand $command): OrderModel
        {
            /** @var ClientEntity $client */
-           $client = $this->clientEntityRepository->findOneBy(['id' => $command->clientId]);
+           $client = $this->clientEntityRepository->find($command->clientId);
    
            return $this->orderService->createOrder($client, $command->orderContent);
        }
@@ -685,7 +685,7 @@
    use Symfony\Component\Messenger\Attribute\AsMessageHandler;
    use Symfony\Component\ObjectMapper\ObjectMapperInterface;
    
-   #[AsMessageHandler]
+   #[AsMessageHandler(bus: 'query.bus')]
    final readonly class GetOrderInfoQueryHandler
    {
        public function __construct(
@@ -697,7 +697,7 @@
        public function __invoke(GetOrderInfoQuery $query): OrderInfoModel
        {
            /** @var OrderEntity $order */
-           $order = $this->orderEntityRepository->findOneBy(['id' => $query->getOrderId()]);
+           $order = $this->orderEntityRepository->find($query->getOrderId());
    
            if (empty($order)) {
                throw new BadRequestHttpException('Order not found');
@@ -749,7 +749,72 @@
        }
    }
    ```
-11. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
+11. Исправляем резолвер `App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver`
+   ```php
+   <?php
+   
+   namespace App\Infrastructure\Delivery\Api\CreateOrder\v1\Request;
+   
+   use App\Application\UseCase\CreateOrder\CreateOrderCommand;
+   use App\Domain\Exception\ApiValidationException;
+   use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
+   use Symfony\Component\HttpFoundation\Request;
+   use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
+   use Symfony\Component\HttpKernel\ControllerMetadata\ArgumentMetadata;
+   use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+   use Symfony\Component\Serializer\Exception\ExceptionInterface;
+   use Symfony\Component\Serializer\SerializerInterface;
+   use Symfony\Component\Validator\Validator\ValidatorInterface;
+   
+   final readonly class CreateOrderValueResolver implements ValueResolverInterface
+   {
+       public function __construct(
+           private ClientEntityRepository $clientEntityRepository,
+           private SerializerInterface $serializer,
+           private ValidatorInterface $validator
+       ) {
+       }
+   
+       /**
+        * @param Request $request
+        * @param ArgumentMetadata $argument
+        * @return iterable
+        *
+        * @throws ApiValidationException
+        * @throws ExceptionInterface
+        */
+       public function resolve(Request $request, ArgumentMetadata $argument): iterable
+       {
+           if ($argument->getType() != CreateOrderCommand::class) {
+               throw new BadRequestHttpException('Wrong request type');
+           }
+   
+           $createOrderCommand = $this->serializer->deserialize($request->getContent(), CreateOrderCommand::class, 'json');
+   
+           $violationsList = $this->validator->validate($createOrderCommand);
+   
+           if ($violationsList->count() > 0) {
+               $violations = [];
+               foreach ($violationsList as $violation) {
+                   $violations[$violation->getPropertyPath()] = $violation->getMessage();
+               }
+   
+               throw new ApiValidationException($violations);
+           }
+   
+           $client = $this->clientEntityRepository->find($createOrderCommand->clientId);
+   
+           if (empty($client)) {
+               throw new BadRequestHttpException('Client not found');
+           }
+   
+           $createOrderCommand->_source = $request->getRequestUri();
+   
+           return [$createOrderCommand];
+       }
+   }
+   ```
+12. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
    ```php
    <?php
    
@@ -796,4 +861,4 @@
        }
    }
    ```
-12. Пробуем отправить любые из имеющихся запросов, видим, что всё работает так, как ожидалось, с соответствующими ответами
+13. Пробуем отправить любые из имеющихся запросов, видим, что всё работает так, как ожидалось, с соответствующими ответами
