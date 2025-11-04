@@ -433,7 +433,7 @@
            $response = $this->resolveResponse($controllerResult);
    
            $jsonResponse = new JsonResponse(
-               data: $this->serializer->serialize($controllerResult, JsonEncoder::FORMAT),
+               data: $this->serializer->serialize($response, JsonEncoder::FORMAT),
                status: $response->getResultCode(),
                json: true
            );
@@ -522,6 +522,278 @@
        }
    }
    ```
-5. Выполняем успешеный запрос из коллекции Postman, видим, что ответ теперь соответствуют нашему формату
+5. Выполняем успешный запрос из коллекции Postman, видим, что ответ теперь соответствуют нашему формату
 
 ## Выносим логику в отдельный сервис и применяем Symfony Message для CQRS
+1. Создаём класс `App\Application\UseCase\CreateOrder\OrderModel`
+   ```php
+   <?php
+   
+   namespace App\Application\UseCase\CreateOrder;
+   
+   final readonly class OrderModel
+   {
+       public function __construct(
+           private int $orderId,
+           private string $status
+       ) {
+       }
+   
+       public function getOrderId(): int
+       {
+           return $this->orderId;
+       }
+   
+       public function getStatus(): string
+       {
+           return $this->status;
+       }
+   }
+   ```
+2. Создаём класс `App\Domain\Service\Order\OrderService`
+   ```php
+   <?php
+   
+   namespace App\Domain\Service\Order;
+   
+   use App\Application\UseCase\CreateOrder\OrderModel;
+   use App\Domain\Entity\Client\ClientEntity;
+   use App\Domain\Entity\Order\OrderEntity;
+   use App\Infrastructure\Persistence\Doctrine\Order\OrderEntityRepository;
+   
+   final readonly class OrderService
+   {
+       public function __construct(
+           private OrderEntityRepository $orderEntityRepository,
+       ) {
+       }
+   
+       public function createOrder(ClientEntity $client, array $orderContent): OrderModel
+       {
+           $newOrder = new OrderEntity();
+   
+           $newOrder
+               ->setCreatedAt(new \DateTime())
+               ->setCreatedBy($client)
+               ->setStatus(OrderEntity::ORDER_STATUS_NEW)
+               ->setOrderContent($orderContent);
+   
+           $this->orderEntityRepository->store($newOrder);
+   
+           return new OrderModel(
+               orderId: $newOrder->getId(),
+               status: $newOrder->getStatus()
+           );
+       }
+   }
+   ```
+3. Устанавливаем пакет `symfony/messenger`
+4. В файле `config/packages/messenger.yaml` расскомментируем строку `sync: 'sync://'` и добавим шины в секцию `messenger`
+   ```yaml
+   default_bus: command.bus
+   
+   buses:
+      command.bus: ~
+      query.bus: ~
+   ```
+5. Создаём класс `App\Application\UseCase\CreateOrder\CreateOrderCommand`:
+   ```php
+   <?php
+   
+   namespace App\Application\UseCase\CreateOrder;
+   
+   use Symfony\Component\Validator\Constraints as Assert;
+   
+   class CreateOrderCommand
+   {
+       public function __construct(
+           public ?string $_source,
+   
+           #[Assert\Positive(message: 'Client Id must be greater than 0')]
+           public int $clientId,
+   
+           #[Assert\NotBlank(message: 'Order content must contain at least one order item')]
+           public array $orderContent
+       ) {
+       }
+   }
+   ```
+6. Создаём класс `App\Application\UseCase\CreateOrder\CreateOrderCommandHandler`:
+   ```php
+   <?php
+   
+   namespace App\Application\UseCase\CreateOrder;
+   
+   use App\Domain\Entity\Client\ClientEntity;
+   use App\Domain\Service\Order\OrderService;
+   use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
+   use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+   
+   #[AsMessageHandler]
+   final readonly class CreateOrderCommandHandler
+   {
+       public function __construct(
+           private OrderService $orderService,
+           private ClientEntityRepository $clientEntityRepository
+       ) {
+       }
+   
+       public function __invoke(CreateOrderCommand $command): OrderModel
+       {
+           /** @var ClientEntity $client */
+           $client = $this->clientEntityRepository->findOneBy(['id' => $command->clientId]);
+   
+           return $this->orderService->createOrder($client, $command->orderContent);
+       }
+   }
+   ```
+7. Устанавливаем пакет `symfony/object-mapper`
+8. Создаём класс `App\Application\UseCase\GetOrderInfo\GetOrderInfoQuery`:
+   ```php
+   <?php
+   
+   namespace App\Application\UseCase\GetOrderInfo;
+   
+   use App\Application\UseCase\CreateOrder\OrderModel;
+   
+   final readonly class GetOrderInfoQuery
+   {
+       public function __construct(private string $orderId)
+       {
+       }
+   
+       public static function fromModel(OrderModel $model): self
+       {
+           return new self($model->getOrderId());
+       }
+   
+       public function getOrderId(): string
+       {
+           return $this->orderId;
+       }
+   }
+   ```
+9. Создаём класс `App\Application\UseCase\GetOrderInfo\GetOrderInfoQueryHandler`:
+   ```php
+   <?php
+   
+   namespace App\Application\UseCase\GetOrderInfo;
+   
+   use App\Domain\Entity\Order\OrderEntity;
+   use App\Infrastructure\Persistence\Doctrine\Order\OrderEntityRepository;
+   use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+   use Symfony\Component\Messenger\Attribute\AsMessageHandler;
+   use Symfony\Component\ObjectMapper\ObjectMapperInterface;
+   
+   #[AsMessageHandler]
+   final readonly class GetOrderInfoQueryHandler
+   {
+       public function __construct(
+           private OrderEntityRepository $orderEntityRepository,
+           private ObjectMapperInterface $objectMapper,
+       ) {
+       }
+   
+       public function __invoke(GetOrderInfoQuery $query): OrderInfoModel
+       {
+           /** @var OrderEntity $order */
+           $order = $this->orderEntityRepository->findOneBy(['id' => $query->getOrderId()]);
+   
+           if (empty($order)) {
+               throw new BadRequestHttpException('Order not found');
+           }
+   
+           return $this->objectMapper->map($order, OrderInfoModel::class);
+       }
+   }
+   ```
+10. Создаём класс `App\Application\CQRS\CQRSTrait`
+   ```php
+   <?php
+   
+   namespace App\Application\CQRS;
+   
+   use Symfony\Component\Messenger\Exception\ExceptionInterface;
+   use Symfony\Component\Messenger\MessageBusInterface;
+   use Symfony\Component\Messenger\Stamp\HandledStamp;
+   
+   trait CQRSTrait
+   {
+       private readonly MessageBusInterface $commandBus;
+       private readonly MessageBusInterface $queryBus;
+   
+       /**
+        * @param mixed $message
+        * @return mixed
+        *
+        * @throws ExceptionInterface
+        */
+       private function handleCommand(mixed $message): mixed
+       {
+           $envelope = $this->commandBus->dispatch($message);
+   
+           return $envelope->last(HandledStamp::class)->getResult();
+       }
+   
+       /**
+        * @param mixed $query
+        * @return mixed
+        *
+        * @throws ExceptionInterface
+        */
+       private function handleQuery(mixed $query): mixed
+       {
+           $envelope = $this->queryBus->dispatch($query);
+   
+           return $envelope->last(HandledStamp::class)->getResult();
+       }
+   }
+   ```
+11. Исправляем контроллер `App\Infrastructure\Delivery\Api\CreateOrder\v1\CreateOrderApiController`
+   ```php
+   <?php
+   
+   namespace App\Infrastructure\Delivery\Api\CreateOrder\v1;
+   
+   use App\Application\CQRS\CQRSTrait;
+   use App\Application\UseCase\CreateOrder\CreateOrderCommand;
+   use App\Application\UseCase\CreateOrder\OrderModel;
+   use App\Application\UseCase\GetOrderInfo\GetOrderInfoQuery;
+   use App\Application\UseCase\GetOrderInfo\OrderInfoModel;
+   use App\Infrastructure\Delivery\Api\CreateOrder\v1\Request\CreateOrderValueResolver;
+   use Symfony\Component\HttpKernel\Attribute\AsController;
+   use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
+   use Symfony\Component\Messenger\Exception\ExceptionInterface;
+   use Symfony\Component\Messenger\MessageBusInterface;
+   use Symfony\Component\Routing\Attribute\Route;
+   
+   #[AsController]
+   final class CreateOrderApiController
+   {
+       use CQRSTrait;
+   
+       public function __construct(
+           private readonly MessageBusInterface $commandBus,
+           private readonly MessageBusInterface $queryBus,
+       ) {
+       }
+   
+       /**
+        * @param CreateOrderCommand $createOrderCommand
+        * @return OrderInfoModel
+        *
+        * @throws ExceptionInterface
+        */
+       #[Route('/api/v1/create-order', name: 'api_create_order_v1', methods: ['POST'])]
+       public function __invoke(
+            #[MapRequestPayload(resolver: CreateOrderValueResolver::class)]
+            CreateOrderCommand $createOrderCommand
+       ): OrderInfoModel {
+           /** @var OrderModel $orderModel */
+           $orderModel = $this->handleCommand($createOrderCommand);
+   
+           return $this->handleQuery(GetOrderInfoQuery::fromModel($orderModel));
+       }
+   }
+   ```
+12. Пробуем отправить любые из имеющихся запросов, видим, что всё работает так, как ожидалось, с соответствующими ответами

@@ -30,7 +30,7 @@ final readonly class KernelViewEventListener
         $response = $this->resolveResponse($controllerResult);
 
         $jsonResponse = new JsonResponse(
-            data: $this->serializer->serialize($controllerResult, JsonEncoder::FORMAT),
+            data: $this->serializer->serialize($response, JsonEncoder::FORMAT),
             status: $response->getResultCode(),
             json: true
         );
