@@ -8,7 +8,7 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 use Symfony\Component\ObjectMapper\ObjectMapperInterface;
 
-#[AsMessageHandler]
+#[AsMessageHandler(bus: 'query.bus')]
 final readonly class GetOrderInfoQueryHandler
 {
     public function __construct(
@@ -20,7 +20,7 @@ final readonly class GetOrderInfoQueryHandler
     public function __invoke(GetOrderInfoQuery $query): OrderInfoModel
     {
         /** @var OrderEntity $order */
-        $order = $this->orderEntityRepository->findOneBy(['id' => $query->getOrderId()]);
+        $order = $this->orderEntityRepository->find($query->getOrderId());
 
         if (empty($order)) {
             throw new BadRequestHttpException('Order not found');

@@ -36,9 +36,9 @@ final readonly class CreateOrderValueResolver implements ValueResolverInterface
             throw new BadRequestHttpException('Wrong request type');
         }
 
-        $deserializedDto = $this->serializer->deserialize($request->getContent(), CreateOrderCommand::class, 'json');
+        $createOrderCommand = $this->serializer->deserialize($request->getContent(), CreateOrderCommand::class, 'json');
 
-        $violationsList = $this->validator->validate($deserializedDto);
+        $violationsList = $this->validator->validate($createOrderCommand);
 
         if ($violationsList->count() > 0) {
             $violations = [];
@@ -49,14 +49,14 @@ final readonly class CreateOrderValueResolver implements ValueResolverInterface
             throw new ApiValidationException($violations);
         }
 
-        $client = $this->clientEntityRepository->findOneBy(['id' => $deserializedDto->clientId]);
+        $client = $this->clientEntityRepository->find($createOrderCommand->clientId);
 
         if (empty($client)) {
             throw new BadRequestHttpException('Client not found');
         }
 
-        $deserializedDto->_source = $request->getRequestUri();
+        $createOrderCommand->_source = $request->getRequestUri();
 
-        return [$deserializedDto];
+        return [$createOrderCommand];
     }
 }

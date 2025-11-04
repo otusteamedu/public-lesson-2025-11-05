@@ -7,7 +7,7 @@ use App\Domain\Service\Order\OrderService;
 use App\Infrastructure\Persistence\Doctrine\Client\ClientEntityRepository;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
-#[AsMessageHandler]
+#[AsMessageHandler(bus: 'command.bus')]
 final readonly class CreateOrderCommandHandler
 {
     public function __construct(
@@ -19,7 +19,7 @@ final readonly class CreateOrderCommandHandler
     public function __invoke(CreateOrderCommand $command): OrderModel
     {
         /** @var ClientEntity $client */
-        $client = $this->clientEntityRepository->findOneBy(['id' => $command->clientId]);
+        $client = $this->clientEntityRepository->find($command->clientId);
 
         return $this->orderService->createOrder($client, $command->orderContent);
     }
