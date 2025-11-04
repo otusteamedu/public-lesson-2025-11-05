@@ -122,7 +122,7 @@
            #[Assert\Positive(message: 'Client Id must be greater than 0')]
            public int $clientId,
    
-           #[Assert\NotBlank(message: 'Order content must containt at least one order item')]
+           #[Assert\NotBlank(message: 'Order content must contain at least one order item')]
            public array $orderContent
        ) {
        }
@@ -209,7 +209,7 @@
            #[Assert\Positive(message: 'Client Id must be greater than 0')]
            public int $clientId,
    
-           #[Assert\NotBlank(message: 'Order content must containt at least one order item')]
+           #[Assert\NotBlank(message: 'Order content must contain at least one order item')]
            public array $orderContent
        ) {
        }
