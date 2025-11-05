@@ -1,0 +1,160 @@
+{
+	"info": {
+		"_postman_id": "62d77b86-5c25-434c-8980-1f2c97cd860c",
+		"name": "Otus-public-lesson-2025-11-05",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "9670063"
+	},
+	"item": [
+		{
+			"name": "OK",
+			"item": [
+				{
+					"name": "OK /api/create-order/v1",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"clientId\": 1,\r\n    \"orderContent\": [\r\n        {\r\n            \"itemId\": 6,\r\n            \"qty\": 3\r\n        }\r\n    ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:18080/api/v1/create-order",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "18080",
+							"path": [
+								"api",
+								"v1",
+								"create-order"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Errors",
+			"item": [
+				{
+					"name": "400 Invalid JSON /api/create-order/v1",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"clientId\": 1,\r\n    \"orderContent\": [\r\n        {\r\n            \"itemId\": 6,\r\n            \"qty\": 3\r\n        \r\n    ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:18080/api/v1/create-order",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "18080",
+							"path": [
+								"api",
+								"v1",
+								"create-order"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "422 Empty orderContent /api/create-order/v1",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"clientId\": 1,\r\n    \"orderContent\": [\r\n       \r\n    ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:18080/api/v1/create-order",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "18080",
+							"path": [
+								"api",
+								"v1",
+								"create-order"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "422 zeroed client id /api/create-order/v1",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"clientId\": 6,\r\n    \"orderContent\": [\r\n        {\r\n            \"itemId\": 6,\r\n            \"qty\": 3\r\n        }\r\n    ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:18080/api/v1/create-order",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "18080",
+							"path": [
+								"api",
+								"v1",
+								"create-order"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "404 /api/not-existing-endpoint",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:18080/api/not-existing-endpoint",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "18080",
+							"path": [
+								"api",
+								"not-existing-endpoint"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
